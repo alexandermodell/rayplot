@@ -149,3 +149,7 @@ viridis / plasma / inferno / magma / cividis; otherwise the numbers come back fo
 pip install -e ".[dev]"
 pytest                   # needs an NVIDIA GPU: importing rayplot selects Mitsuba's CUDA variant
 ```
+
+---
+
+**AI declaration:** The code in this package was written with the assistance of generative AI.
