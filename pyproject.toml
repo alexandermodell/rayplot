@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "raytrace3d"
+version = "0.1.0"
+description = "Path-traced 3-D scatter plots over a shadow-catching floor, with notebook and browser viewers"
+requires-python = ">=3.10"
+dependencies = ["mitsuba>=3.6", "numpy", "pillow", "torch", "matplotlib", "aiohttp", "anywidget"]
+
+[tool.setuptools]
+packages = ["raytrace3d"]
+
+[tool.setuptools.package-data]
+raytrace3d = ["static/*"]

@@ -1,0 +1,34 @@
+.rt3d {
+  --rt3d-panel: #ffffff; --rt3d-ink: #1b1b1a; --rt3d-muted: #6b6a66; --rt3d-line: #dddcd7;
+  --rt3d-accent: #2f6fdb;
+  display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap;
+  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--rt3d-ink);
+}
+.rt3d * { box-sizing: border-box; }
+.rt3d-stage { position: relative; background: #fff; border: 1px solid var(--rt3d-line);
+  border-radius: 8px; overflow: hidden; width: min(640px, 100%); aspect-ratio: 1;
+  flex: 0 1 auto; cursor: grab; touch-action: none; user-select: none; }
+.rt3d-stage.rt3d-dragging { cursor: grabbing; }
+.rt3d-stage img { width: 100%; height: 100%; display: block; pointer-events: none; }
+.rt3d-badge { position: absolute; left: 10px; bottom: 10px; font-size: 12px;
+  color: var(--rt3d-muted); background: rgba(255,255,255,.85); padding: 3px 8px; border-radius: 4px; }
+.rt3d-hint { position: absolute; left: 10px; top: 10px; font-size: 12px; color: var(--rt3d-muted); }
+.rt3d-panel { background: var(--rt3d-panel); border: 1px solid var(--rt3d-line); border-radius: 8px;
+  padding: 14px 16px; width: 280px; flex: 1 1 240px; max-width: 340px; }
+.rt3d-title { font-weight: 600; font-size: 14px; margin-bottom: 6px; }
+.rt3d label { display: block; margin: 12px 0 3px; color: var(--rt3d-muted); font-size: 12px; }
+.rt3d label span { float: right; color: var(--rt3d-ink); font-variant-numeric: tabular-nums; }
+.rt3d input[type=range] { width: 100%; accent-color: var(--rt3d-accent); margin: 0; }
+.rt3d-flips { display: flex; gap: 14px; }
+.rt3d-flips label { display: flex; align-items: center; gap: 5px; margin: 2px 0 0;
+  color: var(--rt3d-ink); cursor: pointer; }
+.rt3d-flips input { accent-color: var(--rt3d-accent); margin: 0; }
+.rt3d hr { border: 0; border-top: 1px solid var(--rt3d-line); margin: 14px 0 0; }
+.rt3d-buttons { display: flex; gap: 8px; margin-top: 16px; }
+.rt3d button { flex: 1; padding: 7px 10px; border: 1px solid var(--rt3d-line); border-radius: 6px;
+  background: #fff; color: var(--rt3d-ink); font: inherit; cursor: pointer; }
+.rt3d button.rt3d-primary { background: var(--rt3d-accent); border-color: var(--rt3d-accent); color: #fff; }
+.rt3d button:disabled { opacity: .5; cursor: default; }
+.rt3d-status { margin-top: 12px; font-size: 12px; color: var(--rt3d-muted); min-height: 1.4em;
+  word-break: break-all; }
+.rt3d-status a { color: var(--rt3d-accent); }

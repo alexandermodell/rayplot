@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__</title>
+<style>
+  body { margin: 0; padding: 20px; background: #f6f6f4; }
+  .rt3d .rt3d-stage { width: min(88vh, 100%); }
+__CSS__
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script type="module">
+__JS__
+// The page's own query string (e.g. ?token=...) is passed on, for token-authenticated proxies.
+const qs = location.search;
+const base = location.pathname.replace(/\/$/, '');
+function wsTransport() {
+  let ws, handler = () => {}, meta = null;
+  const queue = [];
+  const open = () => {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${proto}://${location.host}${base}/ws${qs}`);
+    ws.binaryType = 'arraybuffer';
+    ws.onopen = () => { while (queue.length) ws.send(queue.shift()); };
+    ws.onclose = () => { handler({ spp: 0, target: 1, status: 'disconnected — retrying…' }, null);
+                         setTimeout(open, 1500); };
+    ws.onmessage = ev => {
+      if (typeof ev.data === 'string') { meta = JSON.parse(ev.data); handler(meta, null); }
+      else handler(null, ev.data);
+    };
+  };
+  open();
+  return {
+    send: obj => { const s = JSON.stringify(obj);
+                   if (ws.readyState === 1) ws.send(s); else queue.push(s); },
+    listen: fn => { handler = fn; },
+  };
+}
+mount(document.getElementById('app'), wsTransport(),
+      { saveLink: name => `${base}/saves/${encodeURIComponent(name)}${qs}` });
+</script>
+</body>
+</html>
