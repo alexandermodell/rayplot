@@ -2,15 +2,22 @@
 import time
 from pathlib import Path
 
-import anywidget
+try:
+    import anywidget
+    import traitlets
+except ImportError as e:
+    raise ImportError('rayplot.notebook needs anywidget: pip install "rayplot[notebook]"') from e
+
+from .session import ViewerAPI
 
 STATIC = Path(__file__).parent / 'static'
 
 
-class NotebookViewer(anywidget.AnyWidget):
+class NotebookViewer(ViewerAPI, anywidget.AnyWidget):
     """Interactive path-traced view in a notebook cell. `close()` also frees the GPU."""
     _esm = STATIC / 'viewer.js'
     _css = STATIC / 'viewer.css'
+    title = traitlets.Unicode('Raytraced scatter').tag(sync=True)
 
     def __init__(self, session, max_fps=20, **kwargs):
         super().__init__(**kwargs)
@@ -42,21 +49,8 @@ class NotebookViewer(anywidget.AnyWidget):
             # exactly the fault that leaves the viewer stuck on "starting...", so keep the last one.
             self.send_error = e
 
-    # convenience passthroughs
-    def save(self):
-        """Render the current view at print quality; returns the PNG's path."""
-        return self.session.save()
-
-    @property
-    def view(self):
-        """Current settings, as keyword arguments for `raytrace3d.render`."""
-        return self.session.view
-
-    @property
-    def rotation(self):
-        return self.session.rotation
-
     def close(self):
+        """Stop rendering and free the GPU; `.view` and `.flip` still answer afterwards."""
         self.session.unsubscribe(self._push)
         self.session.stop()
         super().close()

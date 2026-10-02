@@ -11,7 +11,10 @@ third coordinate is "up". The floor is re-fitted under the (turned) points every
 bead radii below the lowest bead, covering their footprint. The camera looks at the points
 from a fixed azimuth, at `elevation` degrees, and never orbits; `rotation` turns the points.
 """
+import functools
+import gc
 import math
+import threading
 from dataclasses import dataclass
 
 import numpy as np
@@ -22,6 +25,24 @@ import drjit as dr
 mi.set_variant('cuda_ad_rgb')            # before PrimColour: mi.Texture depends on the variant
 
 LUM = (0.2126, 0.7152, 0.0722)
+# Smallest bead size a viewer offers. It also sets the world unit (see FloorScene), and stills
+# use the same one, so a still and a viewer save of the same view are the same render.
+SIZE_MIN = 0.08
+
+# Mitsuba is not safe to drive from two threads at once: building a scene while another thread
+# renders fails ("Endpoint::pdf_direction(): not implemented") and can crash the process. Every
+# Mitsuba call goes through this lock, held for one step at a time (a scene, one pass of
+# samples, one denoise), so two viewers, or a still and a viewer, take turns rather than wait
+# for each other to finish.
+MITSUBA = threading.RLock()
+
+
+def serial(fn):
+    @functools.wraps(fn)
+    def run(*args, **kwargs):
+        with MITSUBA:
+            return fn(*args, **kwargs)
+    return run
 # A turn "in a plane" is about the axis normal to it (z is up); the sign makes positive angles
 # carry the plane's first axis towards its second (x -> y, y -> z, x -> z).
 PLANES = {'xy': (np.array([0, 0, 1.0]), 1), 'yz': (np.array([1.0, 0, 0]), 1),
@@ -141,10 +162,12 @@ class FloorScene:
     state: elevation (deg), zoom, size (bead radius, relative to the mean point spacing),
     gap (floor below the lowest bead, in bead radii). R: 3x3 rotation of the points.
     `size_min` sets the world unit (a bead of that size has radius 1); sizes far below it
-    lose precision, so interactive viewers set it to the smallest size they offer.
+    lose precision. Viewers and stills both use min(SIZE_MIN, size), so a still of a viewer's
+    view is the same render as the viewer's save.
     """
     STATE = ('elevation', 'zoom', 'size', 'gap')
 
+    @serial
     def __init__(self, xyz, rgb, res=960, *, rotation=None, flip=None, elevation=30.0,
                  zoom=1.35, size=0.25, gap=1.5, size_min=None, style=None):
         xyz = np.asarray(xyz, dtype=np.float64)
@@ -255,6 +278,7 @@ class FloorScene:
         return dict(data=data, floor=floor, cam=cam, corners=corners, dirn=dirn,
                     radius=r * k)
 
+    @serial
     def apply(self):
         """Push the current state to the GPU and restart the running image."""
         L = self.layout()
@@ -268,6 +292,7 @@ class FloorScene:
         self.bead_a = self._coverage(8)
         self.line = self._outline()
 
+    @serial
     def fit(self, fill=0.92, iters=4):
         """Set `zoom` so the points and the floor fill `fill` of the frame."""
         for _ in range(iters):
@@ -280,6 +305,7 @@ class FloorScene:
             self.state['zoom'] *= fill / ext
         self.apply()
 
+    @serial
     def _coverage(self, spp, seed=0):
         return torch.clamp(mi.render(self.cover, spp=spp, seed=seed).torch()[..., 3:4], 0, 1)
 
@@ -298,6 +324,7 @@ class FloorScene:
         return torch.clamp(w / 2 + 0.5 - d, 0, 1)[..., None]
 
     # ---- rendering ---------------------------------------------------------------------
+    @serial
     def step(self, target):
         """Add samples to the running image (1, 1, 2, 4, ... 64 at a time); False when done."""
         if self.spp >= target:
@@ -313,6 +340,7 @@ class FloorScene:
         return self.denoiser(T(img[..., :3]), albedo=T(img[..., 4:7]), normals=T(img[..., 7:10]),
                              to_sensor=self.L['cam'].inverse()).torch()
 
+    @serial
     def calibrate(self, img=None):
         """Exposure that maps the lit floor (90th percentile; shadows excluded) to 0.97."""
         if img is None:
@@ -323,10 +351,13 @@ class FloorScene:
         if lum.numel() < 100:                 # floor out of view: keep what we had, if anything
             self.exposure = self.exposure or 1.0   # never leave it None: develop() multiplies by it
             return self.exposure
-        idx = torch.randperm(lum.numel(), device='cuda')[:1_000_000]
+        # A fixed seed: the same view always gets the same exposure.
+        g = torch.Generator(device='cuda').manual_seed(0)
+        idx = torch.randperm(lum.numel(), device='cuda', generator=g)[:1_000_000]
         self.exposure = float(0.97 / torch.quantile(lum[idx].float(), 0.9))
         return self.exposure
 
+    @serial
     def develop(self, img=None, bead_a=None):
         """Finished image, uint8 (res, res, 3), from the running (or a given) mean image."""
         img = self.acc / self.spp if img is None else img
@@ -347,7 +378,8 @@ class FloorScene:
         `calibrate=False` keeps the current exposure (so stills match an interactive view)."""
         acc, done, chunk = None, 0, min(128, spp)     # one big pass would not fit in memory
         while done < spp:
-            img = mi.render(self.scene, spp=chunk, seed=10_000 + done).torch()
+            with MITSUBA:
+                img = mi.render(self.scene, spp=chunk, seed=10_000 + done).torch()
             acc = img * chunk if acc is None else acc + img * chunk
             done += chunk
         img = acc / done
@@ -361,6 +393,16 @@ class FloorScene:
                 out = out[max(ys.min() - m, 0):ys.max() + m + 1,
                           max(xs.min() - m, 0):xs.max() + m + 1]
         return out
+
+    @serial
+    def release(self):
+        """Free this scene's GPU memory now, rather than whenever Python gets round to it."""
+        for name in ('scene', 'cover', 'p', 'pc', 'denoiser', 'pix', 'lum', 'acc', 'bead_a',
+                     'line'):
+            self.__dict__.pop(name, None)
+        gc.collect()
+        dr.flush_malloc_cache()
+        torch.cuda.empty_cache()
 
     @property
     def matrix(self):

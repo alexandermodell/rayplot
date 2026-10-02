@@ -1,36 +1,48 @@
 """Browser front end: a small aiohttp server streaming a ViewerSession over a websocket."""
 import asyncio
+import html
 import json
 import threading
+import warnings
 from pathlib import Path
 
-from aiohttp import web, WSMsgType
+try:
+    from aiohttp import web, WSMsgType
+except ImportError as e:
+    raise ImportError('rayplot.browser needs aiohttp: pip install "rayplot[browser]"') from e
+
+from .session import ViewerAPI
 
 STATIC = Path(__file__).parent / 'static'
+LOOPBACK = ('127.0.0.1', 'localhost', '::1')
 
 
 def page(title):
-    html = (STATIC / 'index.html').read_text()
-    return (html.replace('__TITLE__', title)
+    page = (STATIC / 'index.html').read_text()
+    # The title goes into the page twice: as text in <title>, and as a JS string for the panel.
+    js_title = json.dumps(title).replace('<', '\\u003c')
+    return (page.replace('__TITLE__', html.escape(title))
+                .replace('__TITLE_JSON__', js_title)
                 .replace('__CSS__', (STATIC / 'viewer.css').read_text())
                 .replace('__JS__', (STATIC / 'viewer.js').read_text()))
 
 
-class BrowserViewer:
-    """Serves one session at http://host:port/. Use `stop()` to shut it down."""
+class BrowserViewer(ViewerAPI):
+    """Serves one session at http://host:port/. Use `close()` to shut it down."""
 
     def __init__(self, session, host='127.0.0.1', port=17100, title='Raytraced scatter'):
         self.session, self.host, self.port, self.title = session, host, port, title
         self.url = f'http://{host}:{port}/'
         self._stop = None
+        self._thread = None
         self._started = threading.Event()
         self.error = None
 
     def __repr__(self):
-        return f'<raytrace3d browser viewer at {self.url}>'
+        return f'<rayplot browser viewer at {self.url}>'
 
     def _repr_html_(self):
-        return (f'raytrace3d viewer running at <a href="{self.url}" target="_blank">{self.url}</a>'
+        return (f'rayplot viewer running at <a href="{self.url}" target="_blank">{self.url}</a>'
                 ' (forward the port if this machine is remote)')
 
     async def _serve(self):
@@ -99,33 +111,39 @@ class BrowserViewer:
         except Exception as e:
             self.error = e
             self._started.set()
+        finally:
+            self._loop.close()
 
     def start(self, block=False):
+        if self.host not in LOOPBACK:
+            warnings.warn(f'rayplot: serving on {self.host} with no authentication; anyone who '
+                          'can reach the port can drive the viewer and download its saves',
+                          stacklevel=3)
         if block:
-            print(f'raytrace3d viewer at {self.url}  (Ctrl-C to stop)', flush=True)
+            print(f'rayplot viewer at {self.url}  (Ctrl-C to stop)', flush=True)
             try:
                 self._main()
             finally:
                 self.session.stop()
+            if self.error:
+                raise self.error
             return self
-        self._thread = threading.Thread(target=self._main, daemon=True, name='raytrace3d-web')
+        self._thread = threading.Thread(target=self._main, daemon=True, name='rayplot-web')
         self._thread.start()
-        self._started.wait(30)
+        if not self._started.wait(30):
+            self.close()
+            raise TimeoutError(f'rayplot: the server did not start within 30 s ({self.url})')
         if self.error:
+            self.session.stop()
             raise self.error
         return self
 
-    def save(self):
-        """Render the current view at print quality; returns the PNG's path."""
-        return self.session.save()
-
-    @property
-    def view(self):
-        """Current settings, as keyword arguments for `raytrace3d.render`."""
-        return self.session.view
-
-    def stop(self):
-        """Stop serving and free the GPU."""
-        if self._stop is not None:
+    def close(self):
+        """Stop serving and free the GPU; `.view` and `.flip` still answer afterwards."""
+        if self._stop is not None and not self._loop.is_closed():
             self._loop.call_soon_threadsafe(self._stop.set)
+        if self._thread is not None:
+            self._thread.join(10)
         self.session.stop()
+
+    stop = close

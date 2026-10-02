@@ -1,16 +1,29 @@
 [build-system]
-requires = ["setuptools>=64"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "raytrace3d"
-version = "0.1.0"
+name = "rayplot"
+dynamic = ["version"]
 description = "Path-traced 3-D scatter plots over a shadow-catching floor, with notebook and browser viewers"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
-dependencies = ["mitsuba>=3.6", "numpy", "pillow", "torch", "matplotlib", "aiohttp", "anywidget"]
+# mitsuba: the `ellipsoids` shape needs 3.7; only 3.9 has been tested.
+dependencies = ["mitsuba>=3.9", "numpy", "pillow", "torch", "matplotlib"]
 
-[tool.setuptools]
-packages = ["raytrace3d"]
+[project.optional-dependencies]
+notebook = ["anywidget"]
+browser = ["aiohttp"]
+all = ["anywidget", "aiohttp"]
+dev = ["anywidget", "aiohttp", "pytest"]
+
+[tool.setuptools.dynamic]
+version = { attr = "rayplot.__version__" }
 
 [tool.setuptools.package-data]
-raytrace3d = ["static/*"]
+rayplot = ["static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

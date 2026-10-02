@@ -24,38 +24,53 @@ def _parse(c):
     return list(to_rgb(s))
 
 
+def _unit(rgb, raw):
+    """RGB numbers as 0..1: uint8, or anything above 1.5, is on the 0..255 scale. The margin
+    keeps 0..1 floats that rounding pushed slightly over 1 (1.02, say) from being divided by
+    255, and 0/1 integers ([[1, 0, 0], ...]) are 0..1 like any other number up to 1."""
+    rgb = np.asarray(rgb, dtype=np.float64)[..., :3]
+    if np.asarray(raw).dtype == np.uint8 or np.nanmax(rgb, initial=0) > 1.5:
+        rgb = rgb / 255
+    return np.clip(rgb, 0, 1)
+
+
 def to_rgb(colours, n, cmap='viridis', vmin=None, vmax=None):
     """(n, 3) sRGB floats in [0, 1] from any of:
 
-    - one colour for every point: a name / hex / 'rgb(...)' / 'hsl(...)' string or an RGB triple;
+    - one colour for every point: a name / hex / 'rgb(...)' / 'hsl(...)' string, or a tuple of
+      3 (or 4) numbers;
     - n colour strings (hex, 'rgb(r, g, b)', 'hsl(h, s%, l%)', or any matplotlib colour name);
-    - an (n, 3) or (n, 4) array, floats in [0, 1] or integers in 0..255 (alpha is ignored);
+    - an (n, 3) or (n, 4) array (alpha is ignored);
     - n numbers, mapped through `cmap` between `vmin` and `vmax` (default: their range).
+
+    RGB numbers are 0..1, unless the array is uint8 or a value exceeds 1.5, when they are
+    0..255; either way they are clipped to range. A list or array of 3 (or 4) numbers is one
+    colour, except when there are exactly that many points: then it is n values for `cmap`.
+    A tuple is always one colour.
     """
     if isinstance(colours, str):
         return np.tile(_parse(colours), (n, 1))
+    if isinstance(colours, tuple) and len(colours) in (3, 4) and not _has_str(colours):
+        return np.tile(_unit(colours, colours), (n, 1))
     arr = np.asarray(colours, dtype=object if _has_str(colours) else None)
     if arr.dtype == object:
         if arr.shape != (n,):
             raise ValueError(f'expected {n} colour strings, got shape {arr.shape}')
         return np.array([_parse(c) for c in arr], dtype=np.float64)
-    arr = np.asarray(arr, dtype=np.float64)
     if arr.shape in ((3,), (4,)) and n != arr.shape[0]:
-        arr = np.tile(arr[:3], (n, 1))
+        return np.tile(_unit(arr, arr), (n, 1))
     if arr.ndim == 1:
         if len(arr) != n:
             raise ValueError(f'expected {n} values, got {len(arr)}')
         import matplotlib
+        arr = arr.astype(np.float64)
         lo = np.nanmin(arr) if vmin is None else vmin
         hi = np.nanmax(arr) if vmax is None else vmax
         t = (arr - lo) / (hi - lo) if hi > lo else np.zeros_like(arr)
         return np.asarray(matplotlib.colormaps[cmap](np.clip(t, 0, 1)))[:, :3]
     if arr.ndim != 2 or arr.shape[0] != n or arr.shape[1] not in (3, 4):
         raise ValueError(f'colours must be (n, 3) or (n, 4) with n = {n}, got {arr.shape}')
-    arr = arr[:, :3]
-    if np.issubdtype(np.asarray(colours).dtype, np.integer) or arr.max() > 1:
-        arr = arr / 255
-    return np.clip(arr, 0, 1)
+    return _unit(arr, arr)
 
 
 def _has_str(x):
@@ -65,8 +80,3 @@ def _has_str(x):
         return len(x) > 0 and isinstance(x[0], str)
     except TypeError:
         return False
-
-
-def pure_hue(rgb):
-    """The same HSL hue at S = 1, L = 0.5, for (n, 3) sRGB in [0, 1]."""
-    return np.array([colorsys.hls_to_rgb(colorsys.rgb_to_hls(*c)[0], 0.5, 1.0) for c in rgb])

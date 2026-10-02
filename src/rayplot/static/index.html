@@ -6,7 +6,7 @@
 <title>__TITLE__</title>
 <style>
   body { margin: 0; padding: 20px; background: #f6f6f4; }
-  .rt3d .rt3d-stage { width: min(88vh, 100%); }
+  .rayplot .rayplot-stage { width: min(88vh, 100%); }
 __CSS__
 </style>
 </head>
@@ -40,7 +40,7 @@ function wsTransport() {
   };
 }
 mount(document.getElementById('app'), wsTransport(),
-      { saveLink: name => `${base}/saves/${encodeURIComponent(name)}${qs}` });
+      { title: __TITLE_JSON__, saveLink: name => `${base}/saves/${encodeURIComponent(name)}${qs}` });
 </script>
 </body>
 </html>
